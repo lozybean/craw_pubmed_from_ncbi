@@ -9,19 +9,45 @@
 import sys
 import json
 import time
-from bs4 import BeautifulSoup
+import argparse
 from urllib import request
-from lib.util import f
 from multiprocessing import Pool
 from collections import OrderedDict
+from bs4 import BeautifulSoup
 
-camouflage_header = {
-    'User-Agent': f(
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_0) '
-        'AppleWebKit/601.1.56 (KHTML, like Gecko) '
-        'Version/9.0 Safari/601.1.56'
-    )
-}
+
+class SafeSub(dict):
+    def __missing__(self, key):
+        return '{' + key + '}'
+
+
+def f(text, mapping=None):
+    """
+    it is a imitation of py3.6
+    """
+    if mapping is None:
+        text = text.format_map(SafeSub(sys._getframe(1).f_locals))
+        return text.format_map(SafeSub(sys._getframe(1).f_globals))
+    elif isinstance(mapping, dict):
+        return text.format_map(SafeSub(mapping))
+    else:
+        return text.format_map(SafeSub(vars(mapping)))
+
+
+def read_params():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('-r', '--rs_file', dest='rs_file',
+                        metavar='FILE', type=str, required=True,
+                        help="set the rs file, "
+                             "with one rs_num per line")
+    parser.add_argument('-o', '--out_file', dest='out_file',
+                        metavar='FILE', type=str, required=True,
+                        help="set the output file")
+    parser.add_argument('-t', '--threading', dest='threading',
+                        metavar='INT', type=int, default=20,
+                        help="how many threads will you use")
+    args = parser.parse_args()
+    return args
 
 
 def get_request(rs_id):
@@ -44,7 +70,11 @@ def get_request(rs_id):
     )
     req.add_header(
         'User-Agent',
-        camouflage_header['User-Agent']
+        f(
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_0) '
+            'AppleWebKit/601.1.56 (KHTML, like Gecko) '
+            'Version/9.0 Safari/601.1.56'
+        )
     )
     return req
 
@@ -129,6 +159,6 @@ def main(rs_file, out_file, threading=8):
 
 
 if __name__ == '__main__':
-    rs_file, out_file, threading = sys.argv[1:]
-    main(rs_file, out_file, int(threading))
+    params = read_params()
+    main(params.rs_file, params.out_file, params.threading)
 
