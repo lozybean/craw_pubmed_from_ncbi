@@ -10,6 +10,7 @@ import sys
 import json
 import time
 import argparse
+import re
 from urllib import request
 from multiprocessing import Pool
 from collections import OrderedDict
@@ -96,7 +97,7 @@ def get_pubmed_from_list_page(html_text):
         rslt_content['authors'] = supp.find('p', class_='desc').string
         rslt_content['source'] = ''.join(supp.find('p', class_='details').strings)
         rslt_content['report id'] = ''.join(rslt.find('dl', class_='rprtid').strings)
-        rslt_content['report id'] = rslt_content['report id'].replace('[PubMed - indexed for MEDLINE]', '')
+        rslt_content['report id'] = re.sub(r'\[\w+\]', '', rslt_content['report id'])
         result_list.append(rslt_content)
     return result_list
 
@@ -110,7 +111,7 @@ def get_pubmed_from_single_page(html_text):
     rslt_content['authors'] = ''.join(rprt_all.find('div', class_='auths').strings)
     rslt_content['source'] = ''.join(rprt_all.find('div', class_='cit').strings)
     rslt_content['report id'] = ''.join(rprt_all.find('dl', class_='rprtid').strings)
-    rslt_content['report id'] = rslt_content['report id'].replace('[PubMed - indexed for MEDLINE]', '')
+    rslt_content['report id'] = re.sub(r'\[\w+\]', '', rslt_content['report id'])
     return [rslt_content]
 
 
