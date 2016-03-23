@@ -43,6 +43,11 @@ def read_params():
     parser.add_argument('-o', '--out_file', dest='out_file',
                         metavar='FILE', type=str, required=True,
                         help="set the output file")
+    parser.add_argument('-m', '--mask', dest='mask',
+                        metavar='FILE', type=str, default=None,
+                        help="set the mask file, "
+                             "with one rs_num per line "
+                             "shows which rs has been crawled")
     parser.add_argument('-t', '--threading', dest='threading',
                         metavar='INT', type=int, default=20,
                         help="how many threads will you use")
@@ -51,16 +56,15 @@ def read_params():
 
 
 def get_request(rs_id):
-    req = request.Request(
-        f('http://www.ncbi.nlm.nih.gov/'
-          'pubmed?Db=pubmed'
-          '&DbFrom=snp&Cmd=Link'
-          '&LinkName=snp_pubmed_cited'
-          '&LinkReadableName=Pubmed+(SNP+Cited)'
-          '&IdsFromResult={rs_id}'
-          ),
-        method='GET'
+    url = f(
+        'http://www.ncbi.nlm.nih.gov/'
+        'pubmed?Db=pubmed'
+        '&DbFrom=snp&Cmd=Link'
+        '&LinkName=snp_pubmed_cited'
+        '&LinkReadableName=Pubmed+(SNP+Cited)'
+        '&IdsFromResult={rs_id}'
     )
+    req = request.Request(url=url, method='GET')
     req.add_header(
         'Content-Type',
         f(
@@ -79,10 +83,9 @@ def get_request(rs_id):
     return req
 
 
-def extract_ncbi(html_text):
-    soap = BeautifulSoup(html_text, 'lxml')
+def get_pubmed_from_list_page(html_text):
     result_list = []
-    for rprt in soap.find_all('div', class_='rprt'):
+    for rprt in html_text.find_all('div', class_='rprt'):
         rslt_content = OrderedDict()
         rslt = rprt.find('div', class_='rslt')
         title = rslt.find('p', class_='title').find('a')
@@ -93,25 +96,55 @@ def extract_ncbi(html_text):
         rslt_content['authors'] = supp.find('p', class_='desc').string
         rslt_content['source'] = ''.join(supp.find('p', class_='details').strings)
         rslt_content['report id'] = ''.join(rslt.find('dl', class_='rprtid').strings)
+        rslt_content['report id'] = rslt_content['report id'].replace('[PubMed - indexed for MEDLINE]', '')
         result_list.append(rslt_content)
     return result_list
 
 
-def get_data(rs_id):
+def get_pubmed_from_single_page(html_text):
+    rslt_content = OrderedDict()
+    rprt_all = html_text.find('div', id='maincontent').find('div', class_='rprt_all')
+    pm_id = rprt_all.find('dl', class_='rprtid').find('dd').string
+    rslt_content['ncbi_url'] = f('http://www.ncbi.nlm.nih.gov/pubmed/{pm_id}')
+    rslt_content['title'] = rprt_all.find('h1').string
+    rslt_content['authors'] = ''.join(rprt_all.find('div', class_='auths').strings)
+    rslt_content['source'] = ''.join(rprt_all.find('div', class_='cit').strings)
+    rslt_content['report id'] = ''.join(rprt_all.find('dl', class_='rprtid').strings)
+    rslt_content['report id'] = rslt_content['report id'].replace('[PubMed - indexed for MEDLINE]', '')
+    return [rslt_content]
+
+
+def extract_ncbi(html_text):
+    soap = BeautifulSoup(html_text, 'lxml')
+    if (soap.find('div', id='maincontent')
+                .find('div', class_='content')
+                .find('div', class_='one_setting')) is not None:
+        # print('single')
+        result_list = get_pubmed_from_single_page(soap)
+        # print(result_list)
+    else:
+        # print('list')
+        result_list = get_pubmed_from_list_page(soap)
+        # print(result_list)
+    return result_list
+
+
+def get_data(rs_string, sleep_second=3):
+    rs_id = rs_string.replace('rs', '')
     req = get_request(rs_id)
     result_dict = {}
     sys.stderr.write('begin to crawl %s\n' % rs_id)
     with request.urlopen(req) as fp:
         data = fp.read()
-        result_dict[rs_id] = extract_ncbi(data)
-        item_num = len(result_dict[rs_id])
+        result_dict[rs_string] = extract_ncbi(data)
+        item_num = len(result_dict[rs_string])
     sys.stderr.write(
         f(
             'crawl {rs_id} successful, {item_num} item returned\n'
         )
     )
     # sleep 3 seconds to avoid visiting too often
-    time.sleep(3)
+    time.sleep(sleep_second)
     if item_num:
         return json.dumps(result_dict)
     else:
