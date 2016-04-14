@@ -7,7 +7,6 @@
 """
 
 import os
-import sys
 import json
 import time
 import argparse
@@ -16,7 +15,9 @@ from urllib import request
 from multiprocessing import Pool
 from collections import OrderedDict, defaultdict
 from bs4 import BeautifulSoup
-from lib.util import f
+from socket import timeout
+from urllib.error import URLError
+from http.client import IncompleteRead
 
 
 class SafeSub(dict):
@@ -94,14 +95,17 @@ def get_pubmed_from_list_page(html_text):
 def get_pubmed_from_single_page(html_text):
     rslt_content = OrderedDict()
     rprt_all = html_text.find('div', id='maincontent').find('div', class_='rprt_all')
-    pm_id = rprt_all.find('dl', class_='rprtid').find('dd').string
-    rslt_content['ncbi_url'] = f('http://www.ncbi.nlm.nih.gov/pubmed/{pm_id}')
-    rslt_content['title'] = rprt_all.find('h1').string
-    rslt_content['authors'] = ''.join(rprt_all.find('div', class_='auths').strings)
-    rslt_content['source'] = ''.join(rprt_all.find('div', class_='cit').strings)
-    rslt_content['report id'] = ''.join(rprt_all.find('dl', class_='rprtid').strings)
-    rslt_content['report id'] = re.sub(r'\[\w+\]', '', rslt_content['report id'])
-    return [rslt_content]
+    try:
+        pm_id = rprt_all.find('dl', class_='rprtid').find('dd').string
+        rslt_content['ncbi_url'] = f('http://www.ncbi.nlm.nih.gov/pubmed/{pm_id}')
+        rslt_content['title'] = rprt_all.find('h1').string
+        rslt_content['authors'] = ''.join(rprt_all.find('div', class_='auths').strings)
+        rslt_content['source'] = ''.join(rprt_all.find('div', class_='cit').strings)
+        rslt_content['report id'] = ''.join(rprt_all.find('dl', class_='rprtid').strings)
+        rslt_content['report id'] = re.sub(r'\[\w+\]', '', rslt_content['report id'])
+        return [rslt_content]
+    except TypeError:
+        return []
 
 
 def extract_ncbi(html_text):
@@ -115,8 +119,31 @@ def extract_ncbi(html_text):
     return result_list
 
 
-def get_data(rs_string, sleep_second=3, already_dict=None):
+def try_to_get_result(req):
+    try_count = 0
+    while 1:
+        if try_count >= 10:
+            return None
+        try:
+            with request.urlopen(req) as fp:
+                data = fp.read()
+                result_list = extract_ncbi(data)
+                return result_list
+        except (URLError,
+                IncompleteRead,
+                ConnectionResetError,
+                timeout):
+            try_count += 1
+            print(f('error occurred, reloading {try_count} time: {url}... '))
+            continue
+
+
+def get_data(rs_string, sleep_second=3,
+             already_dict=None,
+             already_file=None):
     result_dict = {}
+    if already_file is not None:
+        already_dict = read_already(already_file)
     if already_dict is not None and rs_string in already_dict:
         result_dict[rs_string] = already_dict[rs_string]
     else:
@@ -130,9 +157,7 @@ def get_data(rs_string, sleep_second=3, already_dict=None):
             '&IdsFromResult={rs_id}'
         )
         req = get_request(url)
-        with request.urlopen(req) as fp:
-            data = fp.read()
-            result_dict[rs_string] = extract_ncbi(data)
+        result_dict[rs_string] = try_to_get_result(req)
     item_num = len(result_dict[rs_string])
     # sleep 3 seconds to avoid visiting too often
     time.sleep(sleep_second)
@@ -204,7 +229,7 @@ def main(rs_file, already_dict, out_fp, threading=8):
                                   kwds={'already_dict': already_dict,
                                         'sleep_second': 0})
         result_list.append(result)
-        if len(result_list) >= threading:
+        if len(result_list) >= threading * 2:
             output_result(result_list, out_fp)
             result_list = []
     output_result(result_list, out_fp)
