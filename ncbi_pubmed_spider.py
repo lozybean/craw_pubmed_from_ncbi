@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from socket import timeout
 from urllib.error import URLError
 from http.client import IncompleteRead
+from lib.util import f
 
 
 class SafeSub(dict):
@@ -88,7 +89,7 @@ def get_pubmed_from_list_page(html_text):
             rslt_content['report id'] = ''.join(rslt.find('dl', class_='rprtid').strings)
             rslt_content['report id'] = re.sub(r'\[\w+\]', '', rslt_content['report id'])
             result_list.append(rslt_content)
-        except TypeError:
+        except (TypeError, AttributeError):
             continue
     return result_list
 
@@ -105,7 +106,7 @@ def get_pubmed_from_single_page(html_text):
         rslt_content['report id'] = ''.join(rprt_all.find('dl', class_='rprtid').strings)
         rslt_content['report id'] = re.sub(r'\[\w+\]', '', rslt_content['report id'])
         return [rslt_content]
-    except TypeError:
+    except (TypeError, AttributeError):
         return []
 
 
@@ -159,6 +160,8 @@ def get_data(rs_string, sleep_second=3,
         )
         req = get_request(url)
         result_dict[rs_string] = try_to_get_result(req)
+        if result_dict[rs_string] is None:
+            return None
     item_num = len(result_dict[rs_string])
     # sleep 3 seconds to avoid visiting too often
     time.sleep(sleep_second)
@@ -170,7 +173,10 @@ def get_data(rs_string, sleep_second=3,
 def output_result(result_list, out_fp):
     # out.write('rs_num\treport id\ttitle\tauthor\tsource\tncbi url\n')
     for result in result_list:
-        result = json.loads(result.get())
+        result = result.get()
+        if result is None:
+            continue
+        result = json.loads(result)
         print(result)
         for rs_id, publist in result.items():
             out_fp.write(f('{rs_id}'))
