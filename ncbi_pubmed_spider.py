@@ -127,7 +127,7 @@ def try_to_get_result(req):
         if try_count >= 10:
             return None
         try:
-            with request.urlopen(req) as fp:
+            with request.urlopen(req, timeout=10) as fp:
                 data = fp.read()
                 result_list = extract_ncbi(data)
                 return result_list

@@ -1,2 +1,5 @@
 rs_num.txt
 *.log
+*.tsv
+*.list
+nohup.out
